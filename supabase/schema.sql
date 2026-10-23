@@ -175,3 +175,31 @@ create policy "Tenant can view own messages_log"
 -- Telegram/WhatsApp-triggered writes (bots have no auth.uid()), which
 -- bypasses RLS by design. RLS above protects the WEB DASHBOARD's direct
 -- Supabase client access. Never expose the service role key to the frontend.
+
+
+-- =========================================================
+-- AUTO-CREATE A BUSINESS ON SIGN-UP
+-- =========================================================
+-- 1. Create a business row automatically whenever a user signs up.
+--    SECURITY DEFINER lets it work even before the user has a session
+--    (e.g. when email confirmation is on).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.businesses (owner_auth_id, name)
+  values (
+    new.id,
+    coalesce(nullif(new.raw_user_meta_data->>'business_name', ''), 'My Business')
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();

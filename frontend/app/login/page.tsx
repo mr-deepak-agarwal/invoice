@@ -12,50 +12,64 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
 
-    // Created here (not during render) so the page can be prerendered at
-    // build time even before env vars are configured.
-    const supabase = createClient();
+    try {
+      // Created here (not during render) so the page can be prerendered at
+      // build time even before env vars are configured.
+      const supabase = createClient();
 
-    if (mode === "sign-up") {
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      if (mode === "sign-up") {
+        // The business row is created by a database trigger
+        // (see supabase/schema.sql), which reads business_name from here.
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { business_name: businessName || "My Business" } },
+        });
+        if (signUpError) {
+          setError(signUpError.message);
+          return;
+        }
+        // No session means Supabase wants the email confirmed first.
+        if (!data.session) {
+          setNotice(
+            "Account created. Check your email and click the confirmation link, then sign in."
+          );
+          setMode("sign-in");
+          return;
+        }
+        router.push("/dashboard");
+        router.refresh();
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (signUpError) {
-        setError(signUpError.message);
-        setLoading(false);
+      if (signInError) {
+        setError(signInError.message);
         return;
-      }
-      // Create the business row right after signup
-      if (data.user) {
-        await supabase.from("businesses").insert({
-          owner_auth_id: data.user.id,
-          name: businessName || "My Business",
-        });
       }
       router.push("/dashboard");
       router.refresh();
-      return;
-    }
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (signInError) {
-      setError(signInError.message);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-    router.push("/dashboard");
-    router.refresh();
   }
 
   return (
@@ -140,6 +154,11 @@ export default function LoginPage() {
             {error && (
               <p className="text-sm text-bahi-red-dark bg-bahi-red/10 rounded-card px-3 py-2">
                 {error}
+              </p>
+            )}
+            {notice && (
+              <p className="text-sm text-ink bg-marigold-soft rounded-card px-3 py-2">
+                {notice}
               </p>
             )}
 
