@@ -13,10 +13,12 @@ export interface ParsedInvoiceData {
   client_phone: string | null;
   company_address: string | null;
   taxable_value: number | null;
+  description: string | null;
   due_date: string | null; // YYYY-MM-DD
   missing_fields: string[];
   matched_existing_client: boolean;
   matched_client_id: string | null;
+  parse_note: string | null; // set when the AI step couldn't help
 }
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
@@ -89,7 +91,9 @@ export function parseInvoiceText(rawText: string): ParsedInvoiceData {
       taxable_value,
       due_date,
     }),
+    description: null,
     matched_existing_client: false,
     matched_client_id: null,
+    parse_note: null,
   };
 }

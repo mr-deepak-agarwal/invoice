@@ -30,8 +30,10 @@ export interface ParsedInvoiceData {
   client_phone: string | null;
   company_address: string | null;
   taxable_value: number | null;
+  description: string | null;
   due_date: string | null;
   missing_fields: string[];
   matched_existing_client: boolean;
   matched_client_id: string | null;
+  parse_note: string | null;
 }

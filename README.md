@@ -31,14 +31,17 @@ Supabase (database + auth) is the only other service.
 ### 2. Gemini fallback (optional but recommended)
 1. Get a free key at https://aistudio.google.com/apikey (no card needed
    on the free tier as of writing)
-2. That's it — `lib/gemini.ts` is only called when regex leaves fields
+2. Add it as `GEMINI_API_KEY` (no `NEXT_PUBLIC_` prefix) — `lib/gemini.ts` is only called when regex leaves fields
    missing, so you're not spending a call on every invoice. If you skip
    this, the app still works, just regex-only.
 
-**Note:** Google's model names change fairly often. Pinned to
-`gemini-2.5-flash` via the `GEMINI_MODEL` env var — if extraction starts
-failing, check https://ai.google.dev/gemini-api/docs/models for the
-current free-tier model name and update the env var (no code change).
+**Note:** Google retires and renames models often. `gemini-2.5-flash` is now
+limited to existing users, so new API keys get "model not found" for it.
+`lib/gemini.ts` therefore tries a built-in list of current models
+(`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.5-flash`) and, if
+all fail, the new-invoice form shows the exact reason. Only set
+`GEMINI_MODEL` if you want to force one; check
+https://ai.google.dev/gemini-api/docs/models for current names.
 
 ### 3. Run locally
 ```bash
@@ -57,7 +60,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 # Server-only — never prefix these with NEXT_PUBLIC_
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-2.5-flash
+# GEMINI_MODEL is optional; leave it unset (see note below)
 ```
 
 ### 4. Deploy to Vercel

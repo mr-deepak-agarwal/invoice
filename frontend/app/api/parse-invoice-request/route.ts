@@ -46,14 +46,18 @@ export async function POST(req: NextRequest) {
   // Step 3: Gemini fallback, only spent if something's still missing
   if (parsed.missing_fields.length > 0) {
     const gemini = await parseWithGemini(rawText);
-    if (gemini) {
-      parsed.client_name = parsed.client_name || gemini.client_name;
-      parsed.client_email = parsed.client_email || gemini.client_email;
-      parsed.client_phone = parsed.client_phone || gemini.client_phone;
-      parsed.company_address = parsed.company_address || gemini.company_address;
-      parsed.taxable_value = parsed.taxable_value || gemini.taxable_value;
-      parsed.due_date = parsed.due_date || gemini.due_date;
+    if (gemini.ok) {
+      const g = gemini.fields;
+      parsed.client_name = parsed.client_name || g.client_name;
+      parsed.client_email = parsed.client_email || g.client_email;
+      parsed.client_phone = parsed.client_phone || g.client_phone;
+      parsed.company_address = parsed.company_address || g.company_address;
+      parsed.taxable_value = parsed.taxable_value || g.taxable_value;
+      parsed.description = parsed.description || g.description;
+      parsed.due_date = parsed.due_date || g.due_date;
       parsed.missing_fields = computeMissingFields(parsed);
+    } else {
+      parsed.parse_note = gemini.reason;
     }
   }
 

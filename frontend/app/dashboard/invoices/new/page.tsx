@@ -44,6 +44,8 @@ export default function NewInvoicePage() {
   const [matchedClientName, setMatchedClientName] = useState<string | null>(
     null
   );
+  const [parseNote, setParseNote] = useState<string | null>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
 
   const [suggestions, setSuggestions] = useState<ClientSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -55,6 +57,7 @@ export default function NewInvoicePage() {
     client_phone: "",
     company_address: "",
     taxable_value: "",
+    description: "",
     due_date: "",
   });
 
@@ -151,8 +154,11 @@ export default function NewInvoicePage() {
         client_phone: data.client_phone ?? "",
         company_address: data.company_address ?? "",
         taxable_value: data.taxable_value?.toString() ?? "",
+        description: data.description ?? "",
         due_date: data.due_date ?? "",
       });
+      setParseNote(data.parse_note);
+      setMissingFields(data.missing_fields ?? []);
       if (data.matched_existing_client) {
         setMatchedClientName(data.client_name);
       }
@@ -171,6 +177,19 @@ export default function NewInvoicePage() {
       setError("Could not find your business — try signing in again.");
       return;
     }
+    const amount = parseFloat(form.taxable_value);
+    if (!form.client_name.trim()) {
+      setError("Enter the client name.");
+      return;
+    }
+    if (!amount || amount <= 0) {
+      setError("Enter the amount (a number, before GST).");
+      return;
+    }
+    if (!form.due_date) {
+      setError("Pick a due date.");
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -179,15 +198,19 @@ export default function NewInvoicePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           business_id: businessId,
-          client_name: form.client_name,
+          client_name: form.client_name.trim(),
           client_email: form.client_email || null,
           client_phone: form.client_phone || null,
           client_address: form.company_address || null,
-          taxable_value: parseFloat(form.taxable_value),
+          taxable_value: amount,
+          description: form.description.trim() || undefined,
           due_date: form.due_date,
         }),
       });
-      if (!res.ok) throw new Error("Could not create the invoice");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Could not create the invoice");
+      }
       router.push("/dashboard/invoices");
       router.refresh();
     } catch (err) {
@@ -280,6 +303,34 @@ export default function NewInvoicePage() {
             </div>
           )}
 
+          {parseNote && (
+            <div className="mb-4 text-sm text-ink bg-marigold-soft rounded-card px-3 py-2">
+              <p className="font-medium">
+                Automatic reading didn't work, so please fill in the fields
+                below.
+              </p>
+              <p className="text-xs text-slate mt-1 break-words">{parseNote}</p>
+            </div>
+          )}
+
+          {!parseNote && missingFields.length > 0 && (
+            <div className="mb-4 text-sm text-ink bg-marigold-soft rounded-card px-3 py-2">
+              Still needed:{" "}
+              {missingFields
+                .map((f) =>
+                  f === "client_name"
+                    ? "client name"
+                    : f === "client_contact"
+                    ? "email or mobile"
+                    : f === "taxable_value"
+                    ? "amount"
+                    : "due date"
+                )
+                .join(", ")}
+              .
+            </div>
+          )}
+
           <div className="space-y-4 bg-paper-raised border border-ledger-line rounded-card p-5">
             <Field
               label="Client name"
@@ -305,6 +356,11 @@ export default function NewInvoicePage() {
               label="Amount (₹, before GST)"
               value={form.taxable_value}
               onChange={(v) => setForm({ ...form, taxable_value: v })}
+            />
+            <Field
+              label="What is this for?"
+              value={form.description}
+              onChange={(v) => setForm({ ...form, description: v })}
             />
             <Field
               label="Due date"
