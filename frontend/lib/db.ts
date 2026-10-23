@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabaseAdmin";
+import { getSupabaseAdmin } from "./supabaseAdmin";
 
 export interface ClientRecord {
   id: string;
@@ -14,7 +14,7 @@ export async function resolveBusinessId(
   channel: string,
   channelIdentifier: string
 ): Promise<string | null> {
-  const { data } = await supabaseAdmin
+  const { data } = await getSupabaseAdmin()
     .from("identities")
     .select("business_id")
     .eq("channel", channel)
@@ -31,7 +31,7 @@ export async function searchClients(
   limit = 5
 ): Promise<ClientRecord[]> {
   if (!query.trim()) return [];
-  const { data } = await supabaseAdmin
+  const { data } = await getSupabaseAdmin()
     .from("clients")
     .select("id, name, email, phone, address")
     .eq("business_id", businessId)
@@ -47,7 +47,7 @@ export async function findClientByExactName(
   businessId: string,
   name: string
 ): Promise<ClientRecord | null> {
-  const { data } = await supabaseAdmin
+  const { data } = await getSupabaseAdmin()
     .from("clients")
     .select("id, name, email, phone, address")
     .eq("business_id", businessId)
@@ -65,7 +65,7 @@ export async function nextInvoiceNumber(
   prefix = "INV"
 ): Promise<string> {
   const year = new Date().getFullYear();
-  const { count } = await supabaseAdmin
+  const { count } = await getSupabaseAdmin()
     .from("invoices")
     .select("id", { count: "exact", head: true })
     .eq("business_id", businessId);

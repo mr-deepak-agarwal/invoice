@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { businessId: string } }
 ) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from("invoices")
     .select("*, clients(name, email, phone)")
     .eq("business_id", params.businessId)

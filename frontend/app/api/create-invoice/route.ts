@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { nextInvoiceNumber } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 1. Find or create the client under this business
-  const { data: existingClient } = await supabaseAdmin
+  const { data: existingClient } = await getSupabaseAdmin()
     .from("clients")
     .select("id")
     .eq("business_id", business_id)
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   if (existingClient) {
     clientId = existingClient.id;
   } else {
-    const { data: newClient, error: clientError } = await supabaseAdmin
+    const { data: newClient, error: clientError } = await getSupabaseAdmin()
       .from("clients")
       .insert({
         business_id,
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Fetch business to get GST rates / place of supply defaults
-  const { data: business } = await supabaseAdmin
+  const { data: business } = await getSupabaseAdmin()
     .from("businesses")
     .select("*")
     .eq("id", business_id)
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   );
 
   // 4. Insert invoice
-  const { data: invoice, error: invoiceError } = await supabaseAdmin
+  const { data: invoice, error: invoiceError } = await getSupabaseAdmin()
     .from("invoices")
     .insert({
       business_id,

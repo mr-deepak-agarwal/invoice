@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [businessName, setBusinessName] = useState("");
@@ -19,6 +18,10 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    // Created here (not during render) so the page can be prerendered at
+    // build time even before env vars are configured.
+    const supabase = createClient();
 
     if (mode === "sign-up") {
       const { data, error: signUpError } = await supabase.auth.signUp({
