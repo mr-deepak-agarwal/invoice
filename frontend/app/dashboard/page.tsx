@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { StatCard } from "@/components/StatCard";
 import { InvoiceTable } from "@/components/InvoiceTable";
 import { Invoice } from "@/lib/types";
+import { effectiveStatus } from "@/lib/status";
 
 function formatRupees(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -31,15 +32,21 @@ export default async function DashboardOverview() {
 
   const invoices = (invoicesRaw ?? []) as unknown as Invoice[];
 
-  const outstanding = invoices
-    .filter((i) => i.status === "sent" || i.status === "overdue")
+  // "Overdue" is worked out from the due date, not stored (see lib/status.ts)
+  const withStatus = invoices.map((i) => ({
+    ...i,
+    shown: effectiveStatus(i.status, i.due_date),
+  }));
+
+  const outstanding = withStatus
+    .filter((i) => i.shown === "sent" || i.shown === "overdue")
     .reduce((sum, i) => sum + i.total_value, 0);
 
-  const paid = invoices
-    .filter((i) => i.status === "paid")
+  const paid = withStatus
+    .filter((i) => i.shown === "paid")
     .reduce((sum, i) => sum + i.total_value, 0);
 
-  const overdueCount = invoices.filter((i) => i.status === "overdue").length;
+  const overdueCount = withStatus.filter((i) => i.shown === "overdue").length;
 
   return (
     <div>

@@ -120,6 +120,8 @@ export async function parseWithGemini(rawText: string): Promise<GeminiResult> {
           responseMimeType: "application/json",
           responseSchema: RESPONSE_SCHEMA,
           temperature: 0,
+          // Don't let a slow model hold up the web request or Telegram webhook.
+          httpOptions: { timeout: 8000 },
         },
       });
 
@@ -151,7 +153,14 @@ export async function parseWithGemini(rawText: string): Promise<GeminiResult> {
         },
       };
     } catch (err) {
-      failures.push(`${model}: ${errorText(err)}`);
+      const text = errorText(err);
+      failures.push(`${model}: ${text}`);
+      // Only move on to the next model when THIS model is the problem
+      // (retired, no access, out of quota). For network errors, timeouts or
+      // a bad API key every model would fail the same way and just waste time.
+      if (!/404|NOT_FOUND|not found|no longer available|not supported|limited to|429|RESOURCE_EXHAUSTED|quota/i.test(text)) {
+        break;
+      }
     }
   }
 

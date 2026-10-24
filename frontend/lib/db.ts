@@ -8,6 +8,11 @@ export interface ClientRecord {
   address: string | null;
 }
 
+/** Escape % and _ so user text is matched literally inside ilike. */
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, "\\$&");
+}
+
 /** Look up which business a Telegram chat_id / WhatsApp number / web
  * auth_id belongs to. Returns null if not yet linked (new user). */
 export async function resolveBusinessId(
@@ -35,7 +40,7 @@ export async function searchClients(
     .from("clients")
     .select("id, name, email, phone, address")
     .eq("business_id", businessId)
-    .ilike("name", `%${query.trim()}%`)
+    .ilike("name", `%${escapeLike(query.trim())}%`)
     .limit(limit);
   return data ?? [];
 }
@@ -51,24 +56,25 @@ export async function findClientByExactName(
     .from("clients")
     .select("id, name, email, phone, address")
     .eq("business_id", businessId)
-    .ilike("name", name.trim())
+    .ilike("name", escapeLike(name.trim()))
     .limit(1);
   return data?.[0] ?? null;
 }
 
 /** Generates the next sequential invoice number for a business, e.g.
- * INV-2026-0001. Simple count-based approach; fine at small/medium
- * volume. Switch to a DB sequence per-tenant if you need strict
- * gap-free numbering for audit purposes. */
+ * INV-2026-0001. Count-based; `offset` lets the caller retry with the
+ * next number if two invoices were created at the same moment (or an
+ * invoice was deleted) and the number is already taken. */
 export async function nextInvoiceNumber(
   businessId: string,
-  prefix = "INV"
+  prefix = "INV",
+  offset = 0
 ): Promise<string> {
   const year = new Date().getFullYear();
   const { count } = await getSupabaseAdmin()
     .from("invoices")
     .select("id", { count: "exact", head: true })
     .eq("business_id", businessId);
-  const n = (count ?? 0) + 1;
+  const n = (count ?? 0) + 1 + offset;
   return `${prefix}-${year}-${String(n).padStart(4, "0")}`;
 }

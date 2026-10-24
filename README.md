@@ -81,37 +81,58 @@ do simplify to one platform.
 ## How the pieces connect
 
 ```
-Telegram bot  ─┐
-WhatsApp bot  ─┼─→ POST /api/parse-invoice-request ─→ POST /api/create-invoice ─→ Supabase
-Next.js web   ─┘                                                                      │
-                                                                                        ▼
-                                                          Next.js dashboard ← GET /api/invoices/{business_id}
+Telegram ──→ POST /api/telegram (secret header) ─┐
+Web form ──→ POST /api/parse-invoice-request ────┼─→ lib/parseFlow ─→ lib/invoices ─→ Supabase
+                                                 │   (regex → saved client → Gemini)
+Dashboard (server components, RLS) ←─────────────┘
 ```
 
-- **One parser, one source of truth, three tiers**: whatever channel a
-  message comes from, it hits the same `/api/parse-invoice-request`
-  route, which tries regex first (free, instant), then backfills from a
-  saved client record if the name matches someone billed before (free),
-  and only falls back to Gemini (costs a call) if fields are still
-  missing — so messy phrasing gets handled without spending API quota on
-  the common, already-structured case.
-- **Identity resolution**: before creating an invoice from a bot message,
-  call `GET /api/resolve-business?channel=telegram&channel_identifier=<chat_id>`
-  to find which `business_id` owns that chat. If it returns `null`, that
-  Telegram user hasn't linked their account yet — prompt them to link via
-  the web app.
-- **RLS split**: API routes use `lib/supabaseAdmin.ts` (service role key,
-  bypasses RLS) because bots have no Supabase session — this file must
-  only ever be imported from `app/api/` route handlers, never from a
-  client component. The dashboard UI uses `lib/supabase/client.ts` (anon
-  key + real user session), so RLS enforces tenant isolation there.
+- **One parser**: web form and Telegram both use `lib/parseFlow.ts`
+  (regex first, then saved-client backfill, then Gemini only if fields
+  are still missing) and `lib/invoices.ts` to create the invoice.
+- **Login required**: `/api/parse-invoice-request`, `/api/create-invoice`,
+  `/api/clients/...` and `/api/telegram/link-code|disconnect` all read the
+  signed-in user's business from the session cookie and ignore any
+  business id sent by the browser. The two old unauthenticated routes
+  (`/api/invoices/...`, `/api/resolve-business`) were removed.
+- **Service role key** (`lib/supabaseAdmin.ts`) is server-only. The
+  dashboard pages use the anon key + user session, so RLS isolates tenants.
+
+## Connect Telegram
+
+1. Supabase → SQL Editor → run `supabase/telegram.sql` (once).
+2. In Telegram, talk to @BotFather: `/newbot` (or reuse your bot) and copy
+   the token and username.
+3. Vercel → Settings → Environment Variables, add:
+   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (any long random
+   string), `TELEGRAM_BOT_USERNAME` (without @), and optionally `APP_URL`.
+   Redeploy.
+4. Register the webhook (run once, from any terminal or browser-capable tool):
+
+   ```
+   curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+     -d "url=https://<your-app>.vercel.app/api/telegram" \
+     -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+   ```
+
+   **Warning:** a bot has only one webhook. This replaces the old n8n
+   trigger, so the n8n flow stops receiving messages.
+5. Dashboard → **Telegram** → *Get connection link* → open it in Telegram
+   and tap Start (or send `/link CODE`). Then send an invoice message, check
+   the summary, tap **Create invoice**.
+
+Safety: unconfirmed requests are stored in `telegram_pending` and expire
+after 1 hour; a button tap can create only one invoice; only private chats
+are accepted; every webhook call must carry the secret header.
 
 ## Frontend dashboard
 
 Pages:
 - `/login` — sign in / create account (creates the `businesses` row on signup)
 - `/dashboard` — outstanding / paid / overdue stats + recent entries
-- `/dashboard/invoices` — full invoice list
+- `/dashboard/invoices` — full invoice list; click a row for the detail page
+  (`/dashboard/invoices/[id]`: GST breakdown, mark as paid, print)
+- `/dashboard/telegram` — connect / disconnect your Telegram chat
 - `/dashboard/invoices/new` — paste a message like your Telegram bot gets,
   with live autocomplete on client names (backed by
   `/api/clients/{business_id}/search`), an editable review form, then
@@ -128,15 +149,14 @@ refreshing the Supabase session on each request and redirecting to
 `/login` if there's no user.
 
 ## Next steps (not yet in this scaffold)
-1. Telegram webhook handler — also just becomes an API route
-   (`app/api/telegram-webhook/route.ts`); Telegram pushes messages to a
-   webhook URL, so this is serverless-friendly with no changes needed
-2. PDF generation (HTML template + a serverless-friendly renderer),
+1. PDF generation (HTML template + a serverless-friendly renderer),
    triggered after `/api/create-invoice`, writing `pdf_url` back to the
    invoice row
-3. Reminder cron job — use [Vercel Cron](https://vercel.com/docs/cron-jobs)
+2. Reminder cron job — use [Vercel Cron](https://vercel.com/docs/cron-jobs)
    (a `vercel.json` entry hitting a scheduled API route). Hobby plan caps
    this at once per day, which is genuinely enough for "check what's due
    today/in 3 days/overdue" — log each send to `messages_log` to avoid
    duplicates
-4. Client list page + edit-invoice flow in the dashboard
+3. Business profile page (GSTIN, bank details), client list, edit-invoice flow
+4. IGST for out-of-state clients
+5. Client list page + edit-invoice flow in the dashboard

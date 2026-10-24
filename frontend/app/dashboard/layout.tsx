@@ -23,7 +23,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen flex">
-      <aside className="w-56 shrink-0 border-r border-ledger-line bg-paper-raised px-5 py-6 flex flex-col">
+      <aside className="print:hidden w-56 shrink-0 border-r border-ledger-line bg-paper-raised px-5 py-6 flex flex-col">
         <div className="mb-10">
           <div className="flex items-center gap-2 mb-1">
             <span className="inline-flex items-center justify-center w-7 h-7 rounded-full border-2 border-bahi-red text-bahi-red font-display text-xs">
@@ -54,6 +54,12 @@ export default async function DashboardLayout({
             className="block px-3 py-2 rounded-card text-sm text-bahi-red font-medium hover:bg-bahi-red/5"
           >
             + New invoice
+          </Link>
+          <Link
+            href="/dashboard/telegram"
+            className="block px-3 py-2 rounded-card text-sm text-ink hover:bg-ledger-line/40"
+          >
+            Telegram
           </Link>
         </nav>
 

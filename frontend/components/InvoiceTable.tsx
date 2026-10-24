@@ -1,21 +1,8 @@
+import Link from "next/link";
 import { Invoice } from "@/lib/types";
+import { formatDate, formatRupees } from "@/lib/format";
+import { effectiveStatus } from "@/lib/status";
 import { StatusBadge } from "./StatusBadge";
-
-function formatRupees(n: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   if (invoices.length === 0) {
@@ -34,12 +21,15 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   return (
     <div className="divide-y divide-ledger-line border-t border-b border-ledger-line">
       {invoices.map((invoice) => (
-        <div
+        <Link
           key={invoice.id}
-          className="flex items-center justify-between gap-4 py-4"
+          href={`/dashboard/invoices/${invoice.id}`}
+          className="flex items-center justify-between gap-4 py-4 hover:bg-paper-raised transition-colors"
         >
           <div className="flex items-center gap-4 min-w-0">
-            <StatusBadge status={invoice.status} />
+            <StatusBadge
+              status={effectiveStatus(invoice.status, invoice.due_date)}
+            />
             <div className="min-w-0">
               <p className="font-medium text-ink truncate">
                 {invoice.clients?.name ?? "Unknown client"}
@@ -53,17 +43,9 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
             <p className="font-mono tabular text-ink font-medium">
               {formatRupees(invoice.total_value)}
             </p>
-            {invoice.pdf_url && (
-              <a
-                href={invoice.pdf_url}
-                target="_blank"
-                className="text-xs text-bahi-red hover:underline"
-              >
-                View PDF
-              </a>
-            )}
+            <span className="text-xs text-bahi-red">View details</span>
           </div>
-        </div>
+        </Link>
       ))}
     </div>
   );
