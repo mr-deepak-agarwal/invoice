@@ -17,7 +17,7 @@ export default async function DashboardLayout({
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("name")
+    .select("name, state_code, gst_registered")
     .eq("owner_auth_id", user.id)
     .single();
 
@@ -56,17 +56,40 @@ export default async function DashboardLayout({
             + New invoice
           </Link>
           <Link
+            href="/dashboard/reminders"
+            className="block px-3 py-2 rounded-card text-sm text-ink hover:bg-ledger-line/40"
+          >
+            Reminders
+          </Link>
+          <Link
             href="/dashboard/telegram"
             className="block px-3 py-2 rounded-card text-sm text-ink hover:bg-ledger-line/40"
           >
             Telegram
+          </Link>
+          <Link
+            href="/dashboard/settings"
+            className="block px-3 py-2 rounded-card text-sm text-ink hover:bg-ledger-line/40"
+          >
+            Settings
           </Link>
         </nav>
 
         <SignOutButton />
       </aside>
 
-      <main className="flex-1 px-8 py-8 max-w-4xl">{children}</main>
+      <main className="flex-1 px-8 py-8 max-w-4xl">
+        {business?.gst_registered !== false && !business?.state_code && (
+          <div className="print:hidden mb-6 text-sm text-ink bg-marigold-soft rounded-card px-3 py-2">
+            Set your business state (or GSTIN) in{" "}
+            <Link href="/dashboard/settings" className="underline text-bahi-red">
+              Settings
+            </Link>{" "}
+            so Bahi can charge the right GST on your invoices.
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

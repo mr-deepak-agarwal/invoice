@@ -1,11 +1,14 @@
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { resolveBusinessId } from "./db";
 import { parseInvoiceMessage } from "./parseFlow";
+import { createInvoiceForBusiness } from "./invoices";
 import {
-  GST_RATE_TOTAL,
+  DEFAULT_GST_RATE,
   computeTotals,
-  createInvoiceForBusiness,
-} from "./invoices";
+  stateName,
+  taxTypeFor,
+} from "./gst";
+import { LIMITS, allow } from "./rateLimit";
 import { formatDate, formatRupees } from "./format";
 import {
   answerCallbackQuery,
@@ -36,9 +39,14 @@ interface PendingPayload {
   client_email: string | null;
   client_phone: string | null;
   client_address: string | null;
+  client_gstin: string | null;
+  client_state_code: string | null;
   taxable_value: number;
+  gst_rate: number;
   description: string | null;
   due_date: string;
+  /** Fields filled from saved defaults rather than the message. */
+  assumed?: string[];
 }
 
 const EXAMPLE =
@@ -144,21 +152,41 @@ async function linkChat(chatId: number, rawCode: string) {
   );
 }
 
-function buildSummary(p: PendingPayload): string {
-  const totals = computeTotals(p.taxable_value);
-  const lines = [
-    "Create this invoice?",
-    "",
-    `Client: ${p.client_name}`,
-  ];
+function buildSummary(
+  p: PendingPayload,
+  supplier: { state_code: string | null; gst_registered: boolean }
+): string {
+  const lines = ["Create this invoice?", "", `Client: ${p.client_name}`];
   if (p.client_email) lines.push(`Email: ${p.client_email}`);
   if (p.client_phone) lines.push(`Mobile: ${p.client_phone}`);
   if (p.client_address) lines.push(`Address: ${p.client_address}`);
+  if (p.client_gstin) lines.push(`GSTIN: ${p.client_gstin}`);
   lines.push(`For: ${p.description || "Professional Services"}`);
+
+  if (!supplier.gst_registered || !supplier.state_code || !p.client_state_code) {
+    // Not registered for GST: the amount is the total.
+    lines.push(`Amount: ${formatRupees(p.taxable_value, 2)} (no GST charged)`);
+  } else {
+    const taxType = taxTypeFor(supplier.state_code, p.client_state_code);
+    const totals = computeTotals(p.taxable_value, p.gst_rate, taxType);
+    const taxLabel =
+      taxType === "intra"
+        ? `CGST ${totals.cgstRate}% + SGST ${totals.sgstRate}%`
+        : `IGST ${totals.igstRate}%`;
+    lines.push(
+      `Place of supply: ${stateName(p.client_state_code) ?? p.client_state_code} (${p.client_state_code})${
+        p.assumed?.includes("client_state") ? " — assumed same as yours" : ""
+      }`
+    );
+    lines.push(
+      `Amount: ${formatRupees(p.taxable_value, 2)} + ${taxLabel} (${formatRupees(totals.totalTax, 2)}) = ${formatRupees(totals.total, 2)}`
+    );
+  }
   lines.push(
-    `Amount: ${formatRupees(p.taxable_value, 2)} + ${GST_RATE_TOTAL}% GST = ${formatRupees(totals.total, 2)}`
+    `Due: ${formatDate(p.due_date)}${
+      p.assumed?.includes("due_date") ? " — your default terms" : ""
+    }`
   );
-  lines.push(`Due: ${formatDate(p.due_date)}`);
   return lines.join("\n");
 }
 
@@ -169,16 +197,59 @@ async function handleInvoiceMessage(chatId: number, text: string) {
     return;
   }
 
+  if (text.length > 2000) {
+    await sendMessage(chatId, "That message is too long. Please keep it under 2000 characters.");
+    return;
+  }
+
+  if (
+    !(await allow(
+      `parse:${businessId}`,
+      LIMITS.parse.max,
+      LIMITS.parse.windowSeconds
+    ))
+  ) {
+    await sendMessage(
+      chatId,
+      "You've hit the hourly limit for reading messages. Please try again in a while."
+    );
+    return;
+  }
+
+  const db = getSupabaseAdmin();
+  const { data: business } = await db
+    .from("businesses")
+    .select("state_code, gst_registered")
+    .eq("id", businessId)
+    .maybeSingle();
+  const registered = business?.gst_registered !== false;
+  if (!business || (registered && !business.state_code)) {
+    await sendMessage(
+      chatId,
+      "Before creating invoices, open your dashboard → Settings and set your business state (or GSTIN). Bahi needs it to choose between CGST+SGST and IGST."
+    );
+    return;
+  }
+
   const parsed = await parseInvoiceMessage(text, businessId);
   if (parsed.parse_note) {
     // Not shown to the customer; the owner can see it in the Vercel logs.
-    console.error("Gemini could not read a Telegram message:", parsed.parse_note);
+    console.error("Invoice reader note:", parsed.parse_note);
+  }
+  if (parsed.amount_includes_gst) {
+    await sendMessage(
+      chatId,
+      "That message says the amount includes GST. Please send the amount before GST, for example:\n\n" +
+        EXAMPLE
+    );
+    return;
   }
 
   const missing: string[] = [];
   if (!parsed.client_name) missing.push("client name");
   if (!parsed.taxable_value) missing.push("amount");
   if (!parsed.due_date) missing.push("due date");
+  if (registered && !parsed.client_state_code) missing.push("client's city or state (for IGST vs CGST+SGST)");
   if (missing.length > 0) {
     await sendMessage(
       chatId,
@@ -194,12 +265,15 @@ async function handleInvoiceMessage(chatId: number, text: string) {
     client_email: parsed.client_email,
     client_phone: parsed.client_phone,
     client_address: parsed.company_address,
+    client_gstin: parsed.client_gstin,
+    client_state_code: parsed.client_state_code,
     taxable_value: parsed.taxable_value!,
+    gst_rate: parsed.gst_rate ?? DEFAULT_GST_RATE,
     description: parsed.description,
     due_date: parsed.due_date!,
+    assumed: parsed.defaults_applied,
   };
 
-  const db = getSupabaseAdmin();
   // Tidy up requests nobody confirmed.
   await db
     .from("telegram_pending")
@@ -217,7 +291,10 @@ async function handleInvoiceMessage(chatId: number, text: string) {
     return;
   }
 
-  await sendMessage(chatId, buildSummary(payload), {
+  await sendMessage(chatId, buildSummary(payload, {
+    state_code: business.state_code ?? null,
+    gst_registered: registered,
+  }), {
     reply_markup: {
       inline_keyboard: [
         [
@@ -282,7 +359,10 @@ async function handleCallback(
     client_email: p.client_email,
     client_phone: p.client_phone,
     client_address: p.client_address,
+    client_gstin: p.client_gstin,
+    client_state_code: p.client_state_code,
     taxable_value: p.taxable_value,
+    gst_rate: p.gst_rate,
     description: p.description,
     due_date: p.due_date,
   });
@@ -301,7 +381,11 @@ async function handleCallback(
   const appUrl = process.env.APP_URL?.replace(/\/$/, "");
   const lines = [
     `✅ Invoice ${inv.invoice_number} created`,
-    `${inv.client_name} - ${formatRupees(inv.total_value, 2)} (incl. ${GST_RATE_TOTAL}% GST)`,
+    `${inv.client_name} - ${formatRupees(inv.total_value, 2)} ${
+      inv.tax_type === "none"
+        ? "(no GST)"
+        : `(incl. ${inv.gst_rate}% ${inv.tax_type === "inter" ? "IGST" : "GST"}, ${inv.place_of_supply})`
+    }`,
     `Due ${formatDate(inv.due_date)}`,
   ];
   if (appUrl) lines.push("", `${appUrl}/dashboard/invoices/${inv.id}`);

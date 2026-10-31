@@ -6,7 +6,11 @@ export interface ClientRecord {
   email: string | null;
   phone: string | null;
   address: string | null;
+  gstin: string | null;
+  state_code: string | null;
 }
+
+const CLIENT_COLUMNS = "id, name, email, phone, address, gstin, state_code";
 
 /** Escape % and _ so user text is matched literally inside ilike. */
 export function escapeLike(s: string): string {
@@ -14,7 +18,8 @@ export function escapeLike(s: string): string {
 }
 
 /** Look up which business a Telegram chat_id / WhatsApp number / web
- * auth_id belongs to. Returns null if not yet linked (new user). */
+ * auth_id belongs to. Returns null if not yet linked (new user).
+ * Server-side only — there is deliberately no public HTTP route for this. */
 export async function resolveBusinessId(
   channel: string,
   channelIdentifier: string
@@ -38,7 +43,7 @@ export async function searchClients(
   if (!query.trim()) return [];
   const { data } = await getSupabaseAdmin()
     .from("clients")
-    .select("id, name, email, phone, address")
+    .select(CLIENT_COLUMNS)
     .eq("business_id", businessId)
     .ilike("name", `%${escapeLike(query.trim())}%`)
     .limit(limit);
@@ -46,7 +51,7 @@ export async function searchClients(
 }
 
 /** Case-insensitive exact match, used right after parsing to auto-fill
- * email/phone/address from a previously saved client so the person
+ * email/phone/address/state from a previously saved client so the person
  * doesn't have to retype them the second time they bill someone. */
 export async function findClientByExactName(
   businessId: string,
@@ -54,27 +59,36 @@ export async function findClientByExactName(
 ): Promise<ClientRecord | null> {
   const { data } = await getSupabaseAdmin()
     .from("clients")
-    .select("id, name, email, phone, address")
+    .select(CLIENT_COLUMNS)
     .eq("business_id", businessId)
     .ilike("name", escapeLike(name.trim()))
     .limit(1);
   return data?.[0] ?? null;
 }
 
-/** Generates the next sequential invoice number for a business, e.g.
- * INV-2026-0001. Count-based; `offset` lets the caller retry with the
- * next number if two invoices were created at the same moment (or an
- * invoice was deleted) and the number is already taken. */
-export async function nextInvoiceNumber(
-  businessId: string,
-  prefix = "INV",
-  offset = 0
-): Promise<string> {
-  const year = new Date().getFullYear();
-  const { count } = await getSupabaseAdmin()
-    .from("invoices")
-    .select("id", { count: "exact", head: true })
-    .eq("business_id", businessId);
-  const n = (count ?? 0) + 1 + offset;
-  return `${prefix}-${year}-${String(n).padStart(4, "0")}`;
+export interface TaxProfile {
+  gst_registered: boolean;
+  state_code: string | null;
+  /** null = always ask; 0 = due on receipt; N = N days. */
+  default_due_days: number | null;
+  /** true = assume the client is in the business's own state. */
+  assume_local_supply: boolean;
+}
+
+/** Whether the business charges GST, and from which state. */
+export async function getTaxProfile(
+  businessId: string
+): Promise<TaxProfile | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("businesses")
+    .select("gst_registered, state_code, default_due_days, assume_local_supply")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    gst_registered: data.gst_registered !== false,
+    state_code: data.state_code ?? null,
+    default_due_days: data.default_due_days ?? null,
+    assume_local_supply: data.assume_local_supply === true,
+  };
 }
